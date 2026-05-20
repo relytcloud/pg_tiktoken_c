@@ -1,0 +1,106 @@
+-- Load the extension
+CREATE EXTENSION IF NOT EXISTS pg_tiktoken_c;
+-- Basic encoding
+SELECT tiktoken_encode('cl100k_base', 'Hello world!');
+ tiktoken_encode
+-----------------
+ {9906,1917,0}
+(1 row)
+
+SELECT tiktoken_count('cl100k_base', 'Hello world!');
+ tiktoken_count
+----------------
+              3
+(1 row)
+
+-- r50k_base
+SELECT tiktoken_encode('r50k_base', 'PostgreSQL is amazing!');
+     tiktoken_encode
+-------------------------
+ {6307,47701,318,4998,0}
+(1 row)
+
+SELECT tiktoken_count('r50k_base', 'PostgreSQL is amazing!');
+ tiktoken_count
+----------------
+              5
+(1 row)
+
+-- p50k_base + p50k_edit
+SELECT tiktoken_encode('p50k_base', 'Hello world!');
+ tiktoken_encode
+-----------------
+ {15496,995,0}
+(1 row)
+
+SELECT tiktoken_encode('p50k_edit', 'Hello world!');
+ tiktoken_encode
+-----------------
+ {15496,995,0}
+(1 row)
+
+-- Special tokens included in encode_with_special_tokens
+SELECT tiktoken_encode('cl100k_base', 'hello<|endoftext|>world');
+    tiktoken_encode
+------------------------
+ {15339,100257,14957}
+(1 row)
+
+SELECT tiktoken_encode('p50k_base',   'test<|endoftext|>end');
+ tiktoken_encode
+------------------
+ {9288,50256,437}
+(1 row)
+
+-- Model aliases
+SELECT tiktoken_encode('gpt-3.5-turbo', 'A long time ago in a galaxy far, far away')
+    = tiktoken_encode('cl100k_base', 'A long time ago in a galaxy far, far away') AS alias_gpt35;
+ alias_gpt35
+-------------
+ t
+(1 row)
+
+SELECT tiktoken_encode('text-davinci-002', 'A long time ago in a galaxy far, far away')
+    = tiktoken_encode('p50k_base', 'A long time ago in a galaxy far, far away') AS alias_davinci;
+ alias_davinci
+---------------
+ t
+(1 row)
+
+SELECT tiktoken_encode('gpt2', 'A long time ago in a galaxy far, far away')
+    = tiktoken_encode('r50k_base', 'A long time ago in a galaxy far, far away') AS alias_gpt2;
+ alias_gpt2
+------------
+ t
+(1 row)
+
+SELECT tiktoken_encode('code-davinci-edit-001', 'A long time ago in a galaxy far, far away')
+    = tiktoken_encode('p50k_edit', 'A long time ago in a galaxy far, far away') AS alias_edit;
+ alias_edit
+------------
+ t
+(1 row)
+
+-- Edge cases
+SELECT tiktoken_encode('cl100k_base', '');
+ tiktoken_encode
+-----------------
+ {}
+(1 row)
+
+SELECT tiktoken_count('cl100k_base', '');
+ tiktoken_count
+----------------
+              0
+(1 row)
+
+-- Long text
+SELECT tiktoken_count('cl100k_base', repeat('word ', 100));
+ tiktoken_count
+----------------
+            101
+(1 row)
+
+-- Invalid encoder
+SELECT tiktoken_encode('invalid_model', 'Test') AS should_fail;
+ERROR:  'invalid_model': unknown model or encoder

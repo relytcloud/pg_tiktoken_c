@@ -1,0 +1,4 @@
+*.o
+*.dylib
+*.so
+bench/bench_tiktoken
