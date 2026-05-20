@@ -32,16 +32,33 @@ override CFLAGS += -DTIKTOKEN_DATA_DIR='"$(TIKTOKEN_DATA_DIR)"'
 include $(PGXS)
 
 # ---------------------------------------------------------------------------
-# Download tiktoken vocab files (run once: make download-data)
-# Files are installed to $(TIKTOKEN_DATA_DIR)/
+# Install bundled vocab files from data/ into the PostgreSQL sharedir.
+# Run automatically by `make install`; also available standalone.
+# To refresh from upstream: make download-data
+# ---------------------------------------------------------------------------
+DATA_SRC_DIR := $(dir $(firstword $(MAKEFILE_LIST)))data
+
+install-data:
+	@mkdir -p "$(TIKTOKEN_DATA_DIR)"
+	@for f in cl100k_base o200k_base r50k_base p50k_base p50k_edit; do \
+	    src="$(DATA_SRC_DIR)/$$f.tiktoken"; \
+	    dest="$(TIKTOKEN_DATA_DIR)/$$f.tiktoken"; \
+	    echo "Installing $$f.tiktoken …"; \
+	    cp "$$src" "$$dest"; \
+	done
+	@echo "Done."
+
+install: install-data
+
+# ---------------------------------------------------------------------------
+# Download tiktoken vocab files from upstream (run to refresh data/)
 # ---------------------------------------------------------------------------
 TIKTOKEN_BASE_URL := https://openaipublic.blob.core.windows.net/encodings
-TIKTOKEN_ENCS     := cl100k_base r50k_base p50k_base p50k_edit
 
 download-data:
-	@mkdir -p "$(TIKTOKEN_DATA_DIR)"
+	@mkdir -p "$(DATA_SRC_DIR)"
 	@for enc in cl100k_base o200k_base r50k_base p50k_base; do \
-	    dest="$(TIKTOKEN_DATA_DIR)/$$enc.tiktoken"; \
+	    dest="$(DATA_SRC_DIR)/$$enc.tiktoken"; \
 	    if [ ! -f "$$dest" ]; then \
 	        echo "Downloading $$enc.tiktoken …"; \
 	        curl -fsSL "$(TIKTOKEN_BASE_URL)/$$enc.tiktoken" -o "$$dest" || \
@@ -50,12 +67,11 @@ download-data:
 	        echo "  $$enc.tiktoken already present, skipping."; \
 	    fi \
 	done
-	@# p50k_edit shares the same BPE vocab as p50k_base (only special tokens differ)
-	@if [ ! -f "$(TIKTOKEN_DATA_DIR)/p50k_edit.tiktoken" ]; then \
+	@if [ ! -f "$(DATA_SRC_DIR)/p50k_edit.tiktoken" ]; then \
 	    echo "  Copying p50k_base → p50k_edit (same BPE vocab)…"; \
-	    cp "$(TIKTOKEN_DATA_DIR)/p50k_base.tiktoken" \
-	       "$(TIKTOKEN_DATA_DIR)/p50k_edit.tiktoken"; \
+	    cp "$(DATA_SRC_DIR)/p50k_base.tiktoken" \
+	       "$(DATA_SRC_DIR)/p50k_edit.tiktoken"; \
 	fi
 	@echo "Done."
 
-.PHONY: download-data
+.PHONY: install-data download-data
