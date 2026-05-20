@@ -768,3 +768,255 @@ tiktoken_count(PG_FUNCTION_ARGS)
 
     PG_RETURN_INT64((int64)ntokens);
 }
+
+/* ============================================================
+ * chunk_text: split text into token-bounded overlapping chunks
+ * ============================================================ */
+
+/*
+ * One PCRE2 word-piece or special token, with its byte range in the
+ * source text and the number of BPE tokens it produces.
+ */
+typedef struct {
+    int start;  /* inclusive byte offset */
+    int end;    /* exclusive byte offset */
+    int ntok;   /* tokens produced by this piece */
+} TextPiece;
+
+/*
+ * Flush a plain BPE segment [seg_start .. seg_end) into *pieces,
+ * using PCRE2 to split it into word-pieces first.
+ */
+static void
+flush_bpe_segment(EncoderState *enc, const char *text,
+                  int seg_start, int seg_end,
+                  pcre2_match_data *md,
+                  TextPiece **pieces, int *np, int *cap)
+{
+    uint32_t   tok_buf[MAX_PIECE_TOKENS];
+    PCRE2_SIZE off = (PCRE2_SIZE) seg_start;
+
+    while ((int) off < seg_end)
+    {
+        int rc = pcre2_match(enc->regex, (PCRE2_SPTR) text,
+                             (PCRE2_SIZE) seg_end, off, 0, md, NULL);
+        if (rc < 0)
+            break;
+
+        PCRE2_SIZE *ov = pcre2_get_ovector_pointer(md);
+        if (ov[1] == ov[0]) { off = ov[1] + 1; continue; }
+
+        int nout = bpe_encode_piece(enc->vocab,
+                                    (const uint8_t *) text + ov[0],
+                                    (int) (ov[1] - ov[0]),
+                                    tok_buf);
+        if (nout < 0)
+            ereport(ERROR,
+                    (errmsg("pg_tiktoken_c: BPE encoding failed (byte not in vocab)")));
+
+        if (*np >= *cap)
+        {
+            *cap   *= 2;
+            *pieces = repalloc(*pieces, *cap * sizeof(TextPiece));
+        }
+        (*pieces)[*np].start = (int) ov[0];
+        (*pieces)[*np].end   = (int) ov[1];
+        (*pieces)[*np].ntok  = nout;
+        (*np)++;
+
+        off = ov[1];
+    }
+}
+
+/*
+ * Walk the text once, emitting one TextPiece per PCRE2 word-piece or
+ * special token.  Mirrors tiktoken_tokenize() but captures byte ranges
+ * instead of writing token IDs.
+ */
+static TextPiece *
+collect_pieces(EncoderState *enc, const char *text, int text_len,
+               int *npieces_out)
+{
+    int        cap    = 256;
+    TextPiece *pieces = palloc(cap * sizeof(TextPiece));
+    int        np     = 0;
+
+    pcre2_match_data *md =
+        pcre2_match_data_create_from_pattern(enc->regex, NULL);
+
+    int pos       = 0;
+    int seg_start = 0;
+
+    while (pos < text_len)
+    {
+        int slen = 0;
+        int si   = match_special(enc, text, text_len, pos, &slen);
+        if (si >= 0)
+        {
+            flush_bpe_segment(enc, text, seg_start, pos, md,
+                              &pieces, &np, &cap);
+
+            if (np >= cap)
+            {
+                cap   *= 2;
+                pieces = repalloc(pieces, cap * sizeof(TextPiece));
+            }
+            pieces[np].start = pos;
+            pieces[np].end   = pos + slen;
+            pieces[np].ntok  = 1;
+            np++;
+
+            pos += slen;
+            seg_start = pos;
+        }
+        else
+        {
+            pos++;
+        }
+    }
+
+    flush_bpe_segment(enc, text, seg_start, text_len, md,
+                      &pieces, &np, &cap);
+
+    pcre2_match_data_free(md);
+    *npieces_out = np;
+    return pieces;
+}
+
+PG_FUNCTION_INFO_V1(chunk_text);
+Datum
+chunk_text(PG_FUNCTION_ARGS)
+{
+    int32       chunk_size;
+    int32       chunk_overlap;
+    const char *enc_sel;
+    text       *arg_input;
+    const char *input;
+    int         input_len;
+    const char   *enc_name;
+    EncoderState *enc;
+    int        npieces;
+    TextPiece *pieces;
+    int        result_cap;
+    Datum     *result_datums;
+    int        n_chunks;
+    int        pstart;
+    int        dims[1];
+    int        lbs[1];
+    ArrayType *arr;
+
+    if (PG_ARGISNULL(1))
+        ereport(ERROR, (errmsg("chunk_size cannot be NULL")));
+
+    chunk_size    = PG_GETARG_INT32(1);
+    chunk_overlap = PG_ARGISNULL(2) ? 0 : PG_GETARG_INT32(2);
+    enc_sel       = PG_ARGISNULL(3) ? "cl100k_base"
+                                     : text_to_cstring(PG_GETARG_TEXT_PP(3));
+
+    if (chunk_size <= 0)
+        ereport(ERROR,
+                (errmsg("chunk_size must be > 0, got %d", chunk_size)));
+    if (chunk_overlap < 0 || chunk_overlap >= chunk_size)
+        ereport(ERROR,
+                (errmsg("chunk_overlap must satisfy 0 <= chunk_overlap < chunk_size,"
+                        " got %d and %d", chunk_overlap, chunk_size)));
+
+    /* NULL or empty input → empty text[] */
+    if (PG_ARGISNULL(0))
+        PG_RETURN_ARRAYTYPE_P(construct_empty_array(TEXTOID));
+
+    arg_input = PG_GETARG_TEXT_PP(0);
+    input     = VARDATA_ANY(arg_input);
+    input_len = VARSIZE_ANY_EXHDR(arg_input);
+
+    if (input_len == 0)
+        PG_RETURN_ARRAYTYPE_P(construct_empty_array(TEXTOID));
+
+    enc_name = resolve_encoding(enc_sel);
+    enc      = find_encoder(enc_name);
+    if (!enc)
+        ereport(ERROR,
+                (errmsg("'%s': unknown model or encoder", enc_name)));
+    encoder_load(enc);
+
+    /* ── Collect word-pieces with token counts ────────────────── */
+    npieces = 0;
+    pieces  = collect_pieces(enc, input, input_len, &npieces);
+
+    if (npieces == 0)
+        PG_RETURN_ARRAYTYPE_P(construct_empty_array(TEXTOID));
+
+    /* ── Greedy chunk assembly ────────────────────────────────── */
+    result_cap    = 16;
+    result_datums = palloc(result_cap * sizeof(Datum));
+    n_chunks      = 0;
+    pstart        = 0;
+
+    while (pstart < npieces)
+    {
+        int tok_count = pieces[pstart].ntok;  /* always include ≥ 1 piece */
+        int i         = pstart + 1;
+        while (i < npieces && tok_count + pieces[i].ntok <= chunk_size)
+        {
+            tok_count += pieces[i].ntok;
+            i++;
+        }
+        /* chunk = pieces[pstart .. i-1] */
+        int char_start = pieces[pstart].start;
+        int char_end   = pieces[i - 1].end;
+
+        if (n_chunks >= result_cap)
+        {
+            result_cap   *= 2;
+            result_datums = repalloc(result_datums,
+                                     result_cap * sizeof(Datum));
+        }
+        result_datums[n_chunks++] =
+            PointerGetDatum(
+                cstring_to_text_with_len(input + char_start,
+                                         char_end - char_start));
+
+        if (i >= npieces)
+            break;
+
+        /* ── Compute overlap start for next chunk ─────────────── */
+        if (chunk_overlap == 0)
+        {
+            pstart = i;
+        }
+        else
+        {
+            /*
+             * Walk backward from the last piece of this chunk,
+             * accumulating whole pieces until the next one would push
+             * us past chunk_overlap.  Never walk back to pstart so
+             * we always make forward progress.
+             */
+            int overlap_tok = 0;
+            int j           = i - 1;
+            while (j > pstart &&
+                   overlap_tok + pieces[j].ntok <= chunk_overlap)
+            {
+                overlap_tok += pieces[j].ntok;
+                j--;
+            }
+            int next = j + 1;
+            if (next <= pstart)
+                next = pstart + 1;
+            pstart = next;
+        }
+    }
+
+    /* ── Build text[] result ──────────────────────────────────── */
+    dims[0] = n_chunks;
+    lbs[0]  = 1;
+    arr = construct_md_array(result_datums, NULL, 1, dims, lbs,
+                             TEXTOID, -1, false, 'i');
+
+    for (int k = 0; k < n_chunks; k++)
+        pfree(DatumGetPointer(result_datums[k]));
+    pfree(result_datums);
+    pfree(pieces);
+
+    PG_RETURN_ARRAYTYPE_P(arr);
+}
