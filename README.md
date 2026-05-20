@@ -108,6 +108,25 @@ Returns an array of integer token IDs.
 tiktoken_encode(encoding_selector text, content text) → bigint[]
 ```
 
+### `chunk_text_table(input_text, chunk_size [, chunk_overlap [, encoding]])`
+
+Table-valued version of `chunk_text()`. Returns one row per chunk — more ergonomic for SQL queries that need to join, filter, or aggregate.
+
+```
+chunk_text_table(
+    input_text    text,
+    chunk_size    int,
+    chunk_overlap int  DEFAULT 0,
+    encoding      text DEFAULT 'cl100k_base'
+) → TABLE (chunk_index int, chunk text, token_count bigint)
+```
+
+| Column | Description |
+|---|---|
+| `chunk_index` | 0-based position of the chunk |
+| `chunk` | Chunk text |
+| `token_count` | Exact token count of this chunk |
+
 ### `chunk_text(input_text, chunk_size [, chunk_overlap [, encoding]])`
 
 Splits `input_text` into an array of text chunks, each containing at most `chunk_size` tokens. Consecutive chunks share `chunk_overlap` tokens of context.
@@ -189,6 +208,27 @@ FROM   unnest(tiktoken_encode('cl100k_base', 'Hello world!')) AS t(token_id);
 --      9906 |        0
 --      1917 |        1
 --         0 |        2
+```
+
+### Use the table function for direct SQL queries
+
+```sql
+-- Returns rows: chunk_index, chunk, token_count
+SELECT * FROM chunk_text_table(document_body, 512, 64);
+
+-- Filter: only chunks with more than 50 tokens
+SELECT chunk_index, token_count, chunk
+FROM   chunk_text_table(document_body, 512, 64)
+WHERE  token_count > 50;
+
+-- Bulk processing: expand every document in a table
+SELECT d.id       AS doc_id,
+       ct.chunk_index,
+       ct.token_count,
+       ct.chunk
+FROM   documents d,
+       chunk_text_table(d.body, 512, 64) ct
+ORDER  BY d.id, ct.chunk_index;
 ```
 
 ### Split a document into chunks for RAG indexing
