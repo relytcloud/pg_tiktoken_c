@@ -1,7 +1,9 @@
 MODULE_big = pg_tiktoken_c
 OBJS = pg_tiktoken_c.o
 EXTENSION = pg_tiktoken_c
-DATA = sql/pg_tiktoken_c--1.0.sql
+DATA = sql/pg_tiktoken_c--1.0.sql \
+       sql/pg_tiktoken_c--1.1.sql \
+       sql/pg_tiktoken_c--1.0--1.1.sql
 REGRESS = pg_tiktoken_c
 
 PG_CONFIG ?= pg_config

@@ -108,7 +108,27 @@ Returns an array of integer token IDs.
 tiktoken_encode(encoding_selector text, content text) → bigint[]
 ```
 
-Both functions are `IMMUTABLE PARALLEL SAFE` and can be used in indexes, generated columns, and parallel queries.
+### `chunk_text(input_text, chunk_size [, chunk_overlap [, encoding]])`
+
+Splits `input_text` into an array of text chunks, each containing at most `chunk_size` tokens. Consecutive chunks share `chunk_overlap` tokens of context.
+
+```
+chunk_text(
+    input_text    text,
+    chunk_size    int,
+    chunk_overlap int  DEFAULT 0,
+    encoding      text DEFAULT 'cl100k_base'
+) → text[]
+```
+
+| Parameter | Description |
+|---|---|
+| `input_text` | Text to split. Returns `'{}'` for `NULL` or empty string. |
+| `chunk_size` | Maximum tokens per chunk. Must be `> 0`. |
+| `chunk_overlap` | Tokens shared between adjacent chunks. Must satisfy `0 ≤ overlap < chunk_size`. |
+| `encoding` | Tiktoken encoding name or model alias. |
+
+All three functions are `IMMUTABLE PARALLEL SAFE` and can be used in indexes, generated columns, and parallel queries.
 
 ## Usage Examples
 
@@ -169,6 +189,49 @@ FROM   unnest(tiktoken_encode('cl100k_base', 'Hello world!')) AS t(token_id);
 --      9906 |        0
 --      1917 |        1
 --         0 |        2
+```
+
+### Split a document into chunks for RAG indexing
+
+```sql
+-- Non-overlapping 512-token chunks (typical embedding pipeline)
+SELECT chunk_index,
+       chunk
+FROM   unnest(
+           chunk_text(document_body, 512, 0, 'text-embedding-3-small')
+       ) WITH ORDINALITY AS t(chunk, chunk_index)
+WHERE  document_id = 42;
+```
+
+### Sliding window with overlap (better context continuity)
+
+```sql
+-- 512-token chunks with 64-token overlap
+SELECT chunk_index,
+       tiktoken_count('cl100k_base', chunk) AS tokens,
+       chunk
+FROM   unnest(
+           chunk_text(document_body, 512, 64)
+       ) WITH ORDINALITY AS t(chunk, chunk_index);
+```
+
+### Bulk chunking across an entire table
+
+```sql
+-- Expand every document into its chunks in one query
+SELECT d.id        AS doc_id,
+       t.chunk_idx AS chunk_index,
+       t.chunk     AS chunk_text
+FROM   documents d,
+       unnest(chunk_text(d.body, 512, 64)) WITH ORDINALITY AS t(chunk, chunk_idx)
+ORDER  BY d.id, t.chunk_idx;
+```
+
+### Verify all chunks are within the token limit
+
+```sql
+SELECT bool_and(tiktoken_count('cl100k_base', chunk) <= 512) AS all_ok
+FROM   unnest(chunk_text(my_text, 512, 64)) AS chunk;
 ```
 
 ### Quick reference for common encodings
