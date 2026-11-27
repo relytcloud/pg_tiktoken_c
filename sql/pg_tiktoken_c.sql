@@ -77,3 +77,13 @@ SELECT chunk_text('hello', 0);
 
 -- Error: overlap >= chunk_size
 SELECT chunk_text('hello', 5, 5);
+
+-- Compare ordinary text against the o200k_base reference vocabulary.
+DO $$
+BEGIN
+    IF tiktoken_encode('o200k_base', 'I''m HERE你好')::bigint[]
+       IS DISTINCT FROM ARRAY[15390, 32396, 177519]::bigint[] THEN
+        RAISE EXCEPTION 'unexpected o200k_base token IDs';
+    END IF;
+END
+$$;
