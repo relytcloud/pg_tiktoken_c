@@ -30,6 +30,20 @@ SELECT tiktoken_encode('gpt2', 'A long time ago in a galaxy far, far away')
 SELECT tiktoken_encode('code-davinci-edit-001', 'A long time ago in a galaxy far, far away')
     = tiktoken_encode('p50k_edit', 'A long time ago in a galaxy far, far away') AS alias_edit;
 
+-- A dated model name can use a documented family even before it is listed.
+DO $$
+BEGIN
+    IF tiktoken_encode('gpt-4o-2099-01-01', 'Hello world') IS DISTINCT FROM
+       tiktoken_encode('o200k_base', 'Hello world') OR
+       tiktoken_encode('gpt-3.5-turbo-custom', 'Hello world') IS DISTINCT FROM
+       tiktoken_encode('cl100k_base', 'Hello world') THEN
+        RAISE EXCEPTION 'unexpected model family encoding';
+    END IF;
+END
+$$;
+SELECT tiktoken_count('gpt-4o-', 'hello');
+SELECT tiktoken_count('unlisted-family-1', 'hello');
+
 -- Edge cases
 SELECT tiktoken_encode('cl100k_base', '');
 SELECT tiktoken_count('cl100k_base', '');
@@ -77,17 +91,3 @@ SELECT chunk_text('hello', 0);
 
 -- Error: overlap >= chunk_size
 SELECT chunk_text('hello', 5, 5);
-
--- A dated model name can use a documented family even before it is listed.
-DO $$
-BEGIN
-    IF tiktoken_encode('gpt-4o-2099-01-01', 'Hello world') IS DISTINCT FROM
-       tiktoken_encode('o200k_base', 'Hello world') OR
-       tiktoken_encode('gpt-3.5-turbo-custom', 'Hello world') IS DISTINCT FROM
-       tiktoken_encode('cl100k_base', 'Hello world') THEN
-        RAISE EXCEPTION 'unexpected model family encoding';
-    END IF;
-END
-$$;
-SELECT tiktoken_count('gpt-4o-', 'hello');
-SELECT tiktoken_count('unlisted-family-1', 'hello');

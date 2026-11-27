@@ -2,52 +2,52 @@
 CREATE EXTENSION IF NOT EXISTS pg_tiktoken_c;
 -- Basic encoding
 SELECT tiktoken_encode('cl100k_base', 'Hello world!');
- tiktoken_encode
+ tiktoken_encode 
 -----------------
  {9906,1917,0}
 (1 row)
 
 SELECT tiktoken_count('cl100k_base', 'Hello world!');
- tiktoken_count
+ tiktoken_count 
 ----------------
               3
 (1 row)
 
 -- r50k_base
 SELECT tiktoken_encode('r50k_base', 'PostgreSQL is amazing!');
-     tiktoken_encode
+     tiktoken_encode     
 -------------------------
  {6307,47701,318,4998,0}
 (1 row)
 
 SELECT tiktoken_count('r50k_base', 'PostgreSQL is amazing!');
- tiktoken_count
+ tiktoken_count 
 ----------------
               5
 (1 row)
 
 -- p50k_base + p50k_edit
 SELECT tiktoken_encode('p50k_base', 'Hello world!');
- tiktoken_encode
+ tiktoken_encode 
 -----------------
  {15496,995,0}
 (1 row)
 
 SELECT tiktoken_encode('p50k_edit', 'Hello world!');
- tiktoken_encode
+ tiktoken_encode 
 -----------------
  {15496,995,0}
 (1 row)
 
 -- Special tokens included in encode_with_special_tokens
 SELECT tiktoken_encode('cl100k_base', 'hello<|endoftext|>world');
-    tiktoken_encode
-------------------------
+   tiktoken_encode    
+----------------------
  {15339,100257,14957}
 (1 row)
 
 SELECT tiktoken_encode('p50k_base',   'test<|endoftext|>end');
- tiktoken_encode
+ tiktoken_encode  
 ------------------
  {9288,50256,437}
 (1 row)
@@ -55,128 +55,32 @@ SELECT tiktoken_encode('p50k_base',   'test<|endoftext|>end');
 -- Model aliases
 SELECT tiktoken_encode('gpt-3.5-turbo', 'A long time ago in a galaxy far, far away')
     = tiktoken_encode('cl100k_base', 'A long time ago in a galaxy far, far away') AS alias_gpt35;
- alias_gpt35
+ alias_gpt35 
 -------------
  t
 (1 row)
 
 SELECT tiktoken_encode('text-davinci-002', 'A long time ago in a galaxy far, far away')
     = tiktoken_encode('p50k_base', 'A long time ago in a galaxy far, far away') AS alias_davinci;
- alias_davinci
+ alias_davinci 
 ---------------
  t
 (1 row)
 
 SELECT tiktoken_encode('gpt2', 'A long time ago in a galaxy far, far away')
     = tiktoken_encode('r50k_base', 'A long time ago in a galaxy far, far away') AS alias_gpt2;
- alias_gpt2
+ alias_gpt2 
 ------------
  t
 (1 row)
 
 SELECT tiktoken_encode('code-davinci-edit-001', 'A long time ago in a galaxy far, far away')
     = tiktoken_encode('p50k_edit', 'A long time ago in a galaxy far, far away') AS alias_edit;
- alias_edit
+ alias_edit 
 ------------
  t
 (1 row)
 
--- Edge cases
-SELECT tiktoken_encode('cl100k_base', '');
- tiktoken_encode
------------------
- {}
-(1 row)
-
-SELECT tiktoken_count('cl100k_base', '');
- tiktoken_count
-----------------
-              0
-(1 row)
-
--- Long text
-SELECT tiktoken_count('cl100k_base', repeat('word ', 100));
- tiktoken_count
-----------------
-            101
-(1 row)
-
--- Invalid encoder
-SELECT tiktoken_encode('invalid_model', 'Test') AS should_fail;
-ERROR:  'invalid_model': unknown model or encoder
-
--- ── chunk_text ───────────────────────────────────────────────────────────────
-
--- NULL / empty
-SELECT chunk_text(NULL, 100);
- chunk_text
-------------
- {}
-(1 row)
-
-SELECT chunk_text('', 100);
- chunk_text
-------------
- {}
-(1 row)
-
--- Text shorter than chunk_size → single-element array
-SELECT chunk_text('Hello world!', 100);
-    chunk_text
-------------------
- {"Hello world!"}
-(1 row)
-
--- No overlap: verify chunk count and that chunks together span the original text
-SELECT array_length(chunk_text(repeat('word ', 50), 10), 1) AS n_chunks_no_overlap;
- n_chunks_no_overlap
----------------------
-                   6
-(1 row)
-
--- With overlap: chunk count must be >= no-overlap count
-SELECT array_length(chunk_text(repeat('word ', 50), 10, 3), 1) >=
-       array_length(chunk_text(repeat('word ', 50), 10, 0), 1) AS overlap_produces_more_chunks;
- overlap_produces_more_chunks
-------------------------------
- t
-(1 row)
-
--- Each chunk must not exceed chunk_size tokens
-SELECT bool_and(
-           tiktoken_count('cl100k_base', chunk) <= 10
-       ) AS all_within_limit
-FROM   unnest(chunk_text(repeat('word ', 50), 10)) AS chunk;
- all_within_limit
-------------------
- t
-(1 row)
-
--- Overlap: last chunk_overlap tokens of chunk[i] == first tokens of chunk[i+1]
--- (verify the leading tokens of chunk 2 are present at the tail of chunk 1)
-SELECT tiktoken_count('cl100k_base',
-           (chunk_text(repeat('word ', 50), 10, 3))[2]
-       ) <= 10 AS second_chunk_within_limit;
- second_chunk_within_limit
----------------------------
- t
-(1 row)
-
--- Model alias works
-SELECT array_length(chunk_text(repeat('word ', 30), 5, 0, 'gpt-4'), 1) > 1
-    AS alias_works;
- alias_works
--------------
- t
-(1 row)
-
--- Error: chunk_size = 0
-SELECT chunk_text('hello', 0);
-ERROR:  chunk_size must be > 0, got 0
-
--- Error: overlap >= chunk_size
-SELECT chunk_text('hello', 5, 5);
-ERROR:  chunk_overlap must satisfy 0 <= chunk_overlap < chunk_size, got 5 and 5
 -- A dated model name can use a documented family even before it is listed.
 DO $$
 BEGIN
@@ -192,3 +96,96 @@ SELECT tiktoken_count('gpt-4o-', 'hello');
 ERROR:  'gpt-4o-': unknown model or encoder
 SELECT tiktoken_count('unlisted-family-1', 'hello');
 ERROR:  'unlisted-family-1': unknown model or encoder
+-- Edge cases
+SELECT tiktoken_encode('cl100k_base', '');
+ tiktoken_encode 
+-----------------
+ {}
+(1 row)
+
+SELECT tiktoken_count('cl100k_base', '');
+ tiktoken_count 
+----------------
+              0
+(1 row)
+
+-- Long text
+SELECT tiktoken_count('cl100k_base', repeat('word ', 100));
+ tiktoken_count 
+----------------
+            101
+(1 row)
+
+-- Invalid encoder
+SELECT tiktoken_encode('invalid_model', 'Test') AS should_fail;
+ERROR:  'invalid_model': unknown model or encoder
+-- ── chunk_text ───────────────────────────────────────────────────────────────
+-- NULL / empty
+SELECT chunk_text(NULL, 100);
+ chunk_text 
+------------
+ {}
+(1 row)
+
+SELECT chunk_text('', 100);
+ chunk_text 
+------------
+ {}
+(1 row)
+
+-- Text shorter than chunk_size → single-element array
+SELECT chunk_text('Hello world!', 100);
+    chunk_text    
+------------------
+ {"Hello world!"}
+(1 row)
+
+-- No overlap: verify chunk count and that chunks together span the original text
+SELECT array_length(chunk_text(repeat('word ', 50), 10), 1) AS n_chunks_no_overlap;
+ n_chunks_no_overlap 
+---------------------
+                   6
+(1 row)
+
+-- With overlap: chunk count must be >= no-overlap count
+SELECT array_length(chunk_text(repeat('word ', 50), 10, 3), 1) >=
+       array_length(chunk_text(repeat('word ', 50), 10, 0), 1) AS overlap_produces_more_chunks;
+ overlap_produces_more_chunks 
+------------------------------
+ t
+(1 row)
+
+-- Each chunk must not exceed chunk_size tokens
+SELECT bool_and(
+           tiktoken_count('cl100k_base', chunk) <= 10
+       ) AS all_within_limit
+FROM   unnest(chunk_text(repeat('word ', 50), 10)) AS chunk;
+ all_within_limit 
+------------------
+ t
+(1 row)
+
+-- Overlap: last chunk_overlap tokens of chunk[i] == first tokens of chunk[i+1]
+-- (verify the leading tokens of chunk 2 are present at the tail of chunk 1)
+SELECT tiktoken_count('cl100k_base',
+           (chunk_text(repeat('word ', 50), 10, 3))[2]
+       ) <= 10 AS second_chunk_within_limit;
+ second_chunk_within_limit 
+---------------------------
+ t
+(1 row)
+
+-- Model alias works
+SELECT array_length(chunk_text(repeat('word ', 30), 5, 0, 'gpt-4'), 1) > 1
+    AS alias_works;
+ alias_works 
+-------------
+ t
+(1 row)
+
+-- Error: chunk_size = 0
+SELECT chunk_text('hello', 0);
+ERROR:  chunk_size must be > 0, got 0
+-- Error: overlap >= chunk_size
+SELECT chunk_text('hello', 5, 5);
+ERROR:  chunk_overlap must satisfy 0 <= chunk_overlap < chunk_size, got 5 and 5
