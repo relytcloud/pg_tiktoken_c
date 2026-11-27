@@ -333,6 +333,16 @@ typedef struct EncoderState {
     "|\\s+(?!\\S)" \
     "|\\s+"
 
+/* GPT-4o / o-series style, aligned with tiktoken's o200k_base pattern. */
+#define O200K_PATTERN \
+    "[^\\r\\n\\p{L}\\p{N}]?[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]*[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?" \
+    "|[^\\r\\n\\p{L}\\p{N}]?[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]+[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?" \
+    "|\\p{N}{1,3}" \
+    "| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*" \
+    "|\\s*[\\r\\n]+" \
+    "|\\s+(?!\\S)" \
+    "|\\s+"
+
 /* ============================================================
  * Special tokens per encoding
  * ============================================================ */
@@ -379,7 +389,7 @@ static SpecialToken o200k_special[] = {
 static EncoderState g_encoders[N_ENCODERS] = {
     { "cl100k_base", CL100K_PATTERN, NULL, NULL,
       cl100k_special,    lengthof(cl100k_special),    false },
-    { "o200k_base",  CL100K_PATTERN, NULL, NULL,
+    { "o200k_base",  O200K_PATTERN, NULL, NULL,
       o200k_special,     lengthof(o200k_special),     false },
     { "r50k_base",   GPT2_PATTERN,   NULL, NULL,
       r50k_special,      lengthof(r50k_special),      false },

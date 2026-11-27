@@ -9,6 +9,16 @@ SELECT tiktoken_count('cl100k_base', 'Hello world!');
 SELECT tiktoken_encode('r50k_base', 'PostgreSQL is amazing!');
 SELECT tiktoken_count('r50k_base', 'PostgreSQL is amazing!');
 
+-- Compare ordinary text against the o200k_base reference vocabulary.
+DO $$
+BEGIN
+    IF tiktoken_encode('o200k_base', 'I''m HERE你好')::bigint[]
+       IS DISTINCT FROM ARRAY[15390, 32396, 177519]::bigint[] THEN
+        RAISE EXCEPTION 'unexpected o200k_base token IDs';
+    END IF;
+END
+$$;
+
 -- p50k_base + p50k_edit
 SELECT tiktoken_encode('p50k_base', 'Hello world!');
 SELECT tiktoken_encode('p50k_edit', 'Hello world!');
