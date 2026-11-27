@@ -177,3 +177,18 @@ ERROR:  chunk_size must be > 0, got 0
 -- Error: overlap >= chunk_size
 SELECT chunk_text('hello', 5, 5);
 ERROR:  chunk_overlap must satisfy 0 <= chunk_overlap < chunk_size, got 5 and 5
+-- A dated model name can use a documented family even before it is listed.
+DO $$
+BEGIN
+    IF tiktoken_encode('gpt-4o-2099-01-01', 'Hello world') IS DISTINCT FROM
+       tiktoken_encode('o200k_base', 'Hello world') OR
+       tiktoken_encode('gpt-3.5-turbo-custom', 'Hello world') IS DISTINCT FROM
+       tiktoken_encode('cl100k_base', 'Hello world') THEN
+        RAISE EXCEPTION 'unexpected model family encoding';
+    END IF;
+END
+$$;
+SELECT tiktoken_count('gpt-4o-', 'hello');
+ERROR:  'gpt-4o-': unknown model or encoder
+SELECT tiktoken_count('unlisted-family-1', 'hello');
+ERROR:  'unlisted-family-1': unknown model or encoder

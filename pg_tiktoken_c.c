@@ -452,6 +452,14 @@ static const ModelAlias model_aliases[] = {
     { NULL, NULL }
 };
 
+static const ModelAlias model_families[] = {
+    { "gpt-4-", "cl100k_base" },
+    { "gpt-3.5-turbo-", "cl100k_base" },
+    { "gpt-4o-", "o200k_base" },
+    { "o1-", "o200k_base" },
+    { "o3-", "o200k_base" }
+};
+
 /* Resolve model alias → encoding name. Returns input if no alias found. */
 static const char *
 resolve_encoding(const char *selector)
@@ -459,6 +467,13 @@ resolve_encoding(const char *selector)
     for (int i = 0; model_aliases[i].model; i++)
         if (strcmp(selector, model_aliases[i].model) == 0)
             return model_aliases[i].encoding;
+
+    for (size_t i = 0; i < lengthof(model_families); i++)
+    {
+        size_t len = strlen(model_families[i].model);
+        if (strncmp(selector, model_families[i].model, len) == 0 && selector[len])
+            return model_families[i].encoding;
+    }
     return selector;
 }
 
